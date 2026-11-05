@@ -18,7 +18,7 @@
         </div>
         <div class="hero-text">
           <h2>{{ form.name || '未填写姓名' }}</h2>
-          <p>{{ headline || '完善个人信息后，将显示职称与院系' }}</p>
+          <p>{{ headline || '完善个人信息后，将显示学校与院系' }}</p>
         </div>
       </div>
     </el-card>
@@ -44,10 +44,9 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="职称">
-              <el-select v-model="form.title" placeholder="请选择" clearable style="width: 100%">
-                <el-option v-for="t in TITLES" :key="t" :label="t" :value="t" />
-              </el-select>
+            <el-form-item label="学校">
+              <el-input v-model="form.school" maxlength="80" placeholder="例如：北京大学" />
+              <div class="hint">学校与工号共同作为登录账号，修改后请用新学校登录。</div>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -128,7 +127,6 @@ import { ElMessage } from 'element-plus'
 import { authApi, evaluationApi, syllabusApi } from '../api/client'
 import { authState, setUser } from '../authStore'
 
-const TITLES = ['教授', '副教授', '讲师', '助教', '研究员', '副研究员', '其他']
 const router = useRouter()
 const route = useRoute()
 const emailInput = ref(null)
@@ -151,7 +149,7 @@ const initials = computed(() => {
 })
 
 const headline = computed(() => {
-  return [form.title, form.department].filter(Boolean).join(' · ')
+  return [form.school, form.department].filter(Boolean).join(' · ')
 })
 
 const staffIdDisplay = computed(() => {
@@ -163,7 +161,7 @@ function emptyForm() {
     name: '',
     username: '',
     staff_id: '',
-    title: '',
+    school: '',
     department: '',
     email: '',
     phone: '',
@@ -217,14 +215,18 @@ async function save() {
     ElMessage.warning('请填写姓名')
     return
   }
+  if (!form.school.trim()) {
+    ElMessage.warning('请填写学校')
+    return
+  }
   saving.value = true
   try {
     const user = await authApi.updateMe({
       name: form.name.trim(),
+      school: form.school.trim(),
       department: form.department.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
-      title: form.title || '',
       courses: form.courses || '',
       bio: form.bio || '',
     })

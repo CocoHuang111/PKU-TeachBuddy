@@ -1,7 +1,10 @@
 <template>
   <el-container class="shell" direction="vertical">
     <header class="nav">
-      <div class="brand">TeachBuddy · 管理后台</div>
+      <div class="brand">
+        <img class="brand-logo" src="/brand/iteachbuddy-logo-light.svg" alt="iTeachBuddy" />
+        <span>· 管理后台</span>
+      </div>
       <div class="nav-right">
         <el-menu :default-active="$route.path" router mode="horizontal" class="menu">
           <el-menu-item index="/admin/overview">概览</el-menu-item>
@@ -28,7 +31,8 @@
   justify-content: space-between;
   padding: 0 20px;
 }
-.brand { color: #fff; font-weight: 700; }
+.brand { color: #fff; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.brand-logo { display: block; width: 170px; height: auto; }
 .nav-right { display: flex; align-items: center; gap: 16px; }
 .menu {
   background: transparent;

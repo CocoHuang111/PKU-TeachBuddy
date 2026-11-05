@@ -97,6 +97,7 @@ class SyllabusTextForm(BaseModel):
 
 
 class RegisterForm(BaseModel):
+    school: str = Field(..., min_length=1, max_length=80)
     username: str = Field(..., min_length=3, max_length=32)
     password: str = Field(..., min_length=1, max_length=64)
     confirm_password: str = Field(..., min_length=1, max_length=64)
@@ -104,7 +105,7 @@ class RegisterForm(BaseModel):
     invite_code: str | None = Field(None, max_length=64)
     role: str | None = Field(None, description="忽略。注册不能指定角色")
 
-    @field_validator("username", "display_name")
+    @field_validator("school", "username", "display_name")
     @classmethod
     def strip_text(cls, value: str) -> str:
         text = (value or "").strip()
@@ -119,8 +120,14 @@ class RegisterForm(BaseModel):
 
 
 class LoginForm(BaseModel):
+    school: str = Field("", max_length=80)
     username: str = Field(..., min_length=1, max_length=32)
     password: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("school")
+    @classmethod
+    def strip_school(cls, value: str | None) -> str:
+        return (value or "").strip()
 
     @field_validator("username", "password")
     @classmethod
@@ -152,6 +159,7 @@ class AdminPasswordForm(BaseModel):
 class ProfileUpdateForm(BaseModel):
     name: str | None = Field(None, max_length=40)
     staff_id: str | None = Field(None, max_length=32)
+    school: str | None = Field(None, max_length=80)
     department: str | None = Field(None, max_length=80)
     email: str | None = Field(None, max_length=80)
     phone: str | None = Field(None, max_length=20)
@@ -159,7 +167,7 @@ class ProfileUpdateForm(BaseModel):
     courses: str | None = Field(None, max_length=200)
     bio: str | None = Field(None, max_length=400)
 
-    @field_validator("name", "staff_id", "department", "email", "phone", "title", "courses", "bio")
+    @field_validator("name", "staff_id", "school", "department", "email", "phone", "title", "courses", "bio")
     @classmethod
     def strip_optional(cls, value: str | None) -> str | None:
         if value is None:

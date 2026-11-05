@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 296 76" role="img" aria-labelledby="title desc">
+  <title id="title">iTeachBuddy</title>
+  <desc id="desc">iTeachBuddy 标志，书本与对话气泡图形</desc>
+  <rect x="6" y="6" width="64" height="64" rx="16" fill="#A61B1B"/>
+  <path d="M21 18h34a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H35l-11 7v-7h-3a8 8 0 0 1-8-8V26a8 8 0 0 1 8-8Z" fill="#fff"/>
+  <path d="M24.5 31.5c5.2-2.5 9.7-1.8 13.5 1.8 3.8-3.6 8.3-4.3 13.5-1.8v12.7c-5.3-1.7-9.7-.9-13.5 2.7-3.8-3.6-8.2-4.4-13.5-2.7V31.5Z" fill="none" stroke="#A61B1B" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 33.3v13.6" fill="none" stroke="#A61B1B" stroke-width="2.8" stroke-linecap="round"/>
+  <text x="85" y="50" font-family="Inter, Arial, 'PingFang SC', sans-serif" font-size="34" font-weight="700" letter-spacing="-1.2"><tspan fill="#A61B1B">i</tspan><tspan fill="#292D33">Teach</tspan><tspan fill="#A61B1B">Buddy</tspan></text>
+</svg>

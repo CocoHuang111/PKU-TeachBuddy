@@ -6,8 +6,10 @@ const failure = (status, detail) => ({ response: { status, data: { detail } } })
 
 test('shows missing users, wrong passwords and registered usernames', () => {
   assert.match(authErrorMessage(failure(401, '工号不存在')), /用户不存在/)
+  assert.match(authErrorMessage(failure(401, '学校和工号不匹配')), /学校、工号/)
   assert.equal(authErrorMessage(failure(401, '密码错误')), '密码错误')
   assert.match(authErrorMessage(failure(409, '工号已被使用'), 'register'), /已被注册/)
+  assert.match(authErrorMessage(failure(409, '该学校的工号已被使用'), 'register'), /该学校的工号已被注册/)
 })
 
 test('shows actionable invitation and password errors', () => {

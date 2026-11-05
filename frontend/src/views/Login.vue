@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <header class="nav">
-      <div class="brand">TeachBuddy</div>
+      <div class="brand"><img src="/brand/iteachbuddy-logo-light.svg" alt="iTeachBuddy" /></div>
     </header>
 
     <div class="panel">
@@ -27,6 +27,13 @@
         <el-tab-pane label="登录" name="login">
           <el-form :model="loginForm" label-position="top" @submit.prevent="onLogin">
             <el-alert v-if="loginError" :title="loginError" type="error" show-icon :closable="false" class="form-error" role="alert" />
+            <el-form-item label="学校">
+              <el-input
+                v-model="loginForm.school"
+                maxlength="80"
+                placeholder="与注册时一致；尚未登记学校的账号可留空"
+              />
+            </el-form-item>
             <el-form-item label="工号">
               <el-input v-model="loginForm.username" maxlength="32" placeholder="请输入工号" />
             </el-form-item>
@@ -49,6 +56,9 @@
         <el-tab-pane v-if="authState.config.registration_enabled" label="注册" name="register">
           <el-form :model="registerForm" label-position="top">
             <el-alert v-if="registerError" :title="registerError" type="error" show-icon :closable="false" class="form-error" role="alert" />
+            <el-form-item label="学校">
+              <el-input v-model="registerForm.school" maxlength="80" placeholder="例如：北京大学" />
+            </el-form-item>
             <el-form-item label="工号">
               <el-input v-model="registerForm.username" maxlength="32" placeholder="3–32 位字母、数字或点/下划线/连字符" />
             </el-form-item>
@@ -104,11 +114,13 @@ const registerError = ref('')
 const isSso = computed(() => authState.config.auth_mode === 'pku_sso')
 
 const loginForm = reactive({
+  school: '',
   username: '',
   password: '',
 })
 
 const registerForm = reactive({
+  school: '',
   username: '',
   display_name: '',
   invite_code: '',
@@ -131,6 +143,7 @@ async function onLogin() {
   loading.value = true
   try {
     const data = await authApi.login({
+      school: loginForm.school.trim(),
       username: loginForm.username.trim(),
       password: loginForm.password,
     })
@@ -148,8 +161,12 @@ async function onRegister() {
   if (loading.value) return
   registerError.value = ''
   const form = registerForm
-  if (!form.username.trim() || !form.display_name.trim()) {
-    registerError.value = '请填写工号和姓名'
+  if (!form.school.trim() || !form.username.trim() || !form.display_name.trim()) {
+    registerError.value = '请填写学校、工号和姓名'
+    return
+  }
+  if (form.school.trim().length > 80) {
+    registerError.value = '学校名称不能超过 80 字'
     return
   }
   if (!/^[A-Za-z0-9._-]{3,32}$/.test(form.username.trim())) {
@@ -175,6 +192,7 @@ async function onRegister() {
   loading.value = true
   try {
     const data = await authApi.register({
+      school: form.school.trim(),
       username: form.username.trim(),
       display_name: form.display_name.trim(),
       password: form.password,
@@ -226,11 +244,10 @@ async function onPkuLogin() {
 }
 
 .brand {
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
 }
+.brand img { display: block; width: 170px; height: auto; }
 
 .panel {
   width: min(440px, calc(100% - 32px));

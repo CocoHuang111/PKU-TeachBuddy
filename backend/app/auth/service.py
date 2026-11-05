@@ -52,6 +52,7 @@ async def complete_login(
     identity = await session.scalar(
         select(AuthIdentity).where(
             AuthIdentity.provider == info.provider,
+            AuthIdentity.school == (info.school or ""),
             AuthIdentity.subject == info.subject,
         )
     )
@@ -73,6 +74,7 @@ async def complete_login(
         identity = AuthIdentity(
             user_id=user.id,
             provider=info.provider,
+            school=info.school or "",
             subject=info.subject,
             username=info.username,
             password_hash=None,

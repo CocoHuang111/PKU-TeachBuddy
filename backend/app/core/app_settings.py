@@ -33,6 +33,16 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
+def _nonnegative_int(name: str, default: int = 0) -> int:
+    try:
+        value = int(os.getenv(name) or default)
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是非负整数") from exc
+    if value < 0:
+        raise ValueError(f"{name} 必须是非负整数")
+    return value
+
+
 class AppSettings:
     def __init__(self) -> None:
         self.app_env = (os.getenv("APP_ENV") or "development").strip().lower()
@@ -57,6 +67,9 @@ class AppSettings:
         self.local_registration_invite_code = (
             os.getenv("LOCAL_REGISTRATION_INVITE_CODE") or ""
         ).strip()
+        self.local_registration_max_uses = _nonnegative_int(
+            "LOCAL_REGISTRATION_MAX_USES"
+        )
 
         self.pku_sso_client_id = (os.getenv("PKU_SSO_CLIENT_ID") or "").strip()
         self.pku_sso_client_secret = (os.getenv("PKU_SSO_CLIENT_SECRET") or "").strip()

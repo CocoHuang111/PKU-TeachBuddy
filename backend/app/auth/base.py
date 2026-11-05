@@ -10,6 +10,7 @@ from typing import Any, Protocol
 class AuthIdentityInfo:
     provider: str
     subject: str
+    school: str = ""
     username: str | None = None
     display_name: str = ""
     provider_data: dict[str, Any] = field(default_factory=dict)

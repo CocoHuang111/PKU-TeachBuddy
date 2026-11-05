@@ -75,8 +75,11 @@ package-lock.json
 readme_old.md
 contest_2026/
 .cursor/
+.codex-ppt-build/
 evaluation_design.md
 evaluation_indicators.md
 
 # 入库时跳过，问答也不读取
 knowledge/corpora/**/original_sources/
+
+.codex-ppt-build/

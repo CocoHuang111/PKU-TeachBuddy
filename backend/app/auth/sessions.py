@@ -129,6 +129,11 @@ async def public_user(session: AsyncSession, user: User) -> dict[str, Any]:
         "providers": [item.provider for item in identities],
         "name": profile.name if profile else user.display_name,
         "staff_id": profile.staff_id if profile else "",
+        "school": (
+            profile.school
+            if profile and profile.school
+            else (local.school if local else "")
+        ),
         "title": profile.title if profile else "",
         "department": profile.department if profile else "",
         "email": profile.email if profile else "",
