@@ -2,10 +2,13 @@
   <div class="page">
     <h1>用户管理</h1>
     <div class="toolbar">
-      <el-input v-model="q" placeholder="搜索工号 / 姓名" clearable @keyup.enter="load" />
+      <el-input v-model="q" placeholder="搜索学校 / 工号 / 姓名" clearable @keyup.enter="load" />
       <el-button type="primary" @click="load">搜索</el-button>
     </div>
     <el-table :data="items" v-loading="loading">
+      <el-table-column label="学校" min-width="140">
+        <template #default="{ row }">{{ row.school || '—' }}</template>
+      </el-table-column>
       <el-table-column label="工号" width="140">
         <template #default="{ row }">{{ row.username || row.staff_id || '—' }}</template>
       </el-table-column>
@@ -101,6 +104,6 @@ onMounted(load)
 
 <style scoped>
 .page { max-width: 1200px; margin: 0 auto; }
-.toolbar { display: flex; gap: 8px; margin: 12px 0 16px; width: 420px; }
+.toolbar { display: flex; gap: 8px; margin: 12px 0 16px; width: 480px; }
 .pager { margin-top: 16px; }
 </style>

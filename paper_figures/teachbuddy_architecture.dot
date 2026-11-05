@@ -1,0 +1,45 @@
+digraph TeachBuddyArchitecture {
+  graph [rankdir=TB, bgcolor="white", pad="0.28", nodesep="0.35", ranksep="0.52", splines=polyline];
+  node [shape=box, style="rounded,filled", color="#CFD9E4", penwidth=1.2, fillcolor="white",
+        fontname="PingFang SC", fontsize=13, fontcolor="#223247", margin="0.20,0.13"];
+  edge [color="#71859A", arrowsize=0.72, penwidth=1.4, fontname="PingFang SC", fontsize=10, fontcolor="#52677A"];
+
+  teacher [label="高校教师\n提问 · 上传材料 · 审阅结果", fillcolor="#F1F6FB", color="#97B3CD"];
+  frontend [label="前端交互层｜Vue 3\n问答会话 · 视频提交 · 大纲修订 · 报告查看", fillcolor="#EAF2FA", color="#7EA5C9"];
+  api [label="任务服务层｜FastAPI\n身份与权限 · 文件接收 · 任务状态 · 结果接口", fillcolor="#E8F4F3", color="#79ADA8"];
+  worker [label="后台任务执行\n视频评估队列 · 大纲优化任务 · 邮件通知", fillcolor="#E8F4F3", color="#79ADA8"];
+
+  qa [label="教学智能问答\n四种模式 · 检索规划 · 证据化回答", fillcolor="#EEF0FB", color="#979FD5"];
+  eval [label="教学视频评估\n多模态证据 · 五维判断 · GB综合评分", fillcolor="#EEF0FB", color="#979FD5"];
+  syllabus [label="课程大纲优化\n原文微调／框架重构 · 生成校验", fillcolor="#EEF0FB", color="#979FD5"];
+  { rank=same; qa; eval; syllabus; }
+  qa -> eval [style=invis, weight=10];
+  eval -> syllabus [style=invis, weight=10];
+
+  rag [label="知识检索与文档处理\n分类建库 · 摘要索引 · 原文回读", fillcolor="#F5F0E7", color="#D8B77D"];
+  providers [label="模型与教学规则\nLLM／VLM／Embedding／ASR · 指标规则", fillcolor="#F5F0E7", color="#D8B77D"];
+  { rank=same; rag; providers; }
+  rag -> providers [style=invis, weight=10];
+
+  postgres [label="PostgreSQL\n用户 · 会话 · 任务 · 状态", fillcolor="#F6F7F9"];
+  corpora [label="公共教学语料＋Chroma\n理论 · 学科 · 沙龙 · 课程 · 案例 · AI专题", fillcolor="#F6F7F9"];
+  private [label="用户私有材料\n附件文件 · 评估报告私有索引", fillcolor="#F6F7F9"];
+  { rank=same; postgres; corpora; private; }
+  postgres -> corpora [style=invis, weight=8];
+  corpora -> private [style=invis, weight=8];
+
+  teacher -> frontend;
+  frontend -> api [label="HTTP／流式响应"];
+  api -> worker [label="异步任务"];
+  api -> qa;
+  worker -> eval;
+  worker -> syllabus;
+  qa -> rag;
+  qa -> providers [constraint=false];
+  eval -> providers;
+  syllabus -> providers;
+  rag -> corpora;
+  api -> postgres;
+  eval -> private [label="按用户写入报告", color="#B88048", fontcolor="#966337"];
+  eval -> qa [label="教师选择后复用报告", color="#B88048", fontcolor="#966337", style=dashed, constraint=false];
+}

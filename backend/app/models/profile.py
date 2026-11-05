@@ -18,6 +18,7 @@ class UserProfile(Base):
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     staff_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    school: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
     title: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     department: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     email: Mapped[str] = mapped_column(String(80), nullable=False, default="")

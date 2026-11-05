@@ -122,7 +122,9 @@ async def list_users(
                         User.display_name.ilike(pattern),
                         UserProfile.name.ilike(pattern),
                         UserProfile.staff_id.ilike(pattern),
+                        UserProfile.school.ilike(pattern),
                         AuthIdentity.username.ilike(pattern),
+                        AuthIdentity.school.ilike(pattern),
                         AuthIdentity.subject.ilike(pattern),
                     )
                 )

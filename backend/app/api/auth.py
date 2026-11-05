@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..auth.pku_sso import PKUSSOAuthProvider, PKUSSONotConfigured
 from ..auth.service import complete_login
@@ -23,13 +23,15 @@ from ..core.database import session_scope
 from ..core.rate_limit import check_login_rate, clear_login_failures, record_login_failure
 from ..core.security import (
     hash_password,
+    normalize_school,
     normalize_username,
     validate_password,
+    validate_school,
     validate_username,
     verify_password,
 )
 from ..core.uploads import record_upload, save_avatar
-from ..models import AuthIdentity, StoredFile, User, UserProfile, UserSettings
+from ..models import AuditLog, AuthIdentity, StoredFile, User, UserProfile, UserSettings
 from ..schemas import (
     ChangePasswordForm,
     LoginForm,
@@ -39,6 +41,9 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["账号"])
+
+# PostgreSQL transaction lock serializes registration across backend processes.
+_REGISTRATION_QUOTA_LOCK_KEY = 0x5445414348425544
 
 
 def _auth_config() -> dict:
@@ -67,6 +72,7 @@ async def register(form: RegisterForm, request: Request, response: Response) -> 
     if form.password != form.confirm_password:
         raise HTTPException(400, "两次输入的密码不一致")
     try:
+        school = validate_school(form.school)
         username = validate_username(form.username)
         password = validate_password(form.password)
     except ValueError as exc:
@@ -74,14 +80,30 @@ async def register(form: RegisterForm, request: Request, response: Response) -> 
 
     display_name = (form.display_name or username).strip()
     async with session_scope() as session:
+        if settings.local_registration_max_uses:
+            await session.execute(
+                select(func.pg_advisory_xact_lock(_REGISTRATION_QUOTA_LOCK_KEY))
+            )
         existing = await session.scalar(
             select(AuthIdentity).where(
                 AuthIdentity.provider == "local",
+                AuthIdentity.school == school,
                 AuthIdentity.subject == username,
             )
         )
         if existing:
-            raise HTTPException(409, "工号已被使用")
+            raise HTTPException(409, "该学校的工号已被使用")
+        if settings.local_registration_max_uses:
+            used = await session.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.action == "register",
+                    AuditLog.details["provider"].astext == "local",
+                )
+            )
+            if used >= settings.local_registration_max_uses:
+                raise HTTPException(403, "内测名额已满，暂不接受新用户注册")
         user = User(
             display_name=display_name,
             role="user",
@@ -94,13 +116,21 @@ async def register(form: RegisterForm, request: Request, response: Response) -> 
             AuthIdentity(
                 user_id=user.id,
                 provider="local",
+                school=school,
                 subject=username,
                 username=username,
                 password_hash=hash_password(password),
                 last_authenticated_at=datetime.now(timezone.utc),
             )
         )
-        session.add(UserProfile(user_id=user.id, name=display_name, staff_id=username))
+        session.add(
+            UserProfile(
+                user_id=user.id,
+                name=display_name,
+                staff_id=username,
+                school=school,
+            )
+        )
         from ..models import UserSettings
 
         session.add(UserSettings(user_id=user.id, settings={}))
@@ -114,7 +144,7 @@ async def register(form: RegisterForm, request: Request, response: Response) -> 
             actor_user_id=user.id,
             resource_type="user",
             resource_id=str(user.id),
-            details={"provider": "local", "username": username},
+            details={"provider": "local", "username": username, "school": school},
         )
         payload = await public_user(session, user)
     set_session_cookie(response, token)
@@ -126,13 +156,15 @@ async def login(form: LoginForm, request: Request, response: Response) -> dict:
     settings = get_app_settings()
     if not settings.is_local_auth:
         raise HTTPException(403, "当前未启用本地登录")
+    school = normalize_school(form.school)
     username = normalize_username(form.username)
-    rate_key = f"{request.client.host if request.client else 'unknown'}:{username}"
+    rate_key = f"{request.client.host if request.client else 'unknown'}:{school}:{username}"
     check_login_rate(rate_key)
     async with session_scope() as session:
         identity = await session.scalar(
             select(AuthIdentity).where(
                 AuthIdentity.provider == "local",
+                AuthIdentity.school == school,
                 AuthIdentity.subject == username,
             )
         )
@@ -145,7 +177,7 @@ async def login(form: LoginForm, request: Request, response: Response) -> dict:
                 resource_type="auth_identity",
                 details={"provider": "local"},
             )
-            raise HTTPException(401, "工号不存在")
+            raise HTTPException(401, "学校和工号不匹配")
         if not identity.password_hash or not verify_password(
             form.password, identity.password_hash
         ):
@@ -161,7 +193,7 @@ async def login(form: LoginForm, request: Request, response: Response) -> dict:
         user = await session.get(User, identity.user_id)
         if not user:
             record_login_failure(rate_key)
-            raise HTTPException(401, "工号不存在")
+            raise HTTPException(401, "学校和工号不匹配")
         from ..auth.base import AuthIdentityInfo
 
         _, token, payload = await complete_login(
@@ -169,6 +201,7 @@ async def login(form: LoginForm, request: Request, response: Response) -> dict:
             AuthIdentityInfo(
                 provider="local",
                 subject=username,
+                school=school,
                 username=username,
                 display_name=user.display_name,
             ),
@@ -213,6 +246,11 @@ async def update_me(
     payload.pop("staff_id", None)
     payload.pop("role", None)
     payload.pop("status", None)
+    if "school" in payload:
+        try:
+            payload["school"] = validate_school(payload.get("school") or "")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     async with session_scope() as session:
         db_user = await session.get(User, user["_id"])
         if not db_user:
@@ -221,6 +259,25 @@ async def update_me(
         if profile is None:
             profile = UserProfile(user_id=db_user.id)
             session.add(profile)
+        if "school" in payload:
+            identity = await session.scalar(
+                select(AuthIdentity).where(
+                    AuthIdentity.user_id == db_user.id,
+                    AuthIdentity.provider == "local",
+                )
+            )
+            if identity is not None and identity.school != payload["school"]:
+                taken = await session.scalar(
+                    select(AuthIdentity.id).where(
+                        AuthIdentity.provider == "local",
+                        AuthIdentity.school == payload["school"],
+                        AuthIdentity.subject == identity.subject,
+                        AuthIdentity.id != identity.id,
+                    )
+                )
+                if taken:
+                    raise HTTPException(409, "该学校的工号已被使用")
+                identity.school = payload["school"]
         for key, value in payload.items():
             if hasattr(profile, key):
                 setattr(profile, key, value)

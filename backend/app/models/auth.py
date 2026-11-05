@@ -13,7 +13,12 @@ from .base import Base
 class AuthIdentity(Base):
     __tablename__ = "auth_identities"
     __table_args__ = (
-        UniqueConstraint("provider", "subject", name="uq_auth_identities_provider_subject"),
+        UniqueConstraint(
+            "provider",
+            "school",
+            "subject",
+            name="uq_auth_identities_provider_school_subject",
+        ),
         Index("ix_auth_identities_user_id", "user_id"),
     )
 
@@ -24,6 +29,7 @@ class AuthIdentity(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    school: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
     subject: Mapped[str] = mapped_column(String(191), nullable=False)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">iTeachBuddy 图标</title>
+  <desc id="desc">适合深色背景的书本与对话气泡图标</desc>
+  <rect width="64" height="64" rx="16" fill="#fff"/>
+  <path d="M15 12h34a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H29L18 57v-7h-3a8 8 0 0 1-8-8V20a8 8 0 0 1 8-8Z" fill="#A61B1B"/>
+  <path d="M18.5 25.5c5.2-2.5 9.7-1.8 13.5 1.8 3.8-3.6 8.3-4.3 13.5-1.8v12.7c-5.3-1.7-9.7-.9-13.5 2.7-3.8-3.6-8.2-4.4-13.5-2.7V25.5Z" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32 27.3v13.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+</svg>

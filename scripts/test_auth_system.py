@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,12 +20,12 @@ os.environ.setdefault(
 )
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine, select, text  # noqa: E402
+from sqlalchemy import create_engine, func, select, text  # noqa: E402
 
 from backend.app.core.app_settings import get_app_settings, reset_app_settings  # noqa: E402
 from backend.app.core.database import reset_engines  # noqa: E402
 from backend.app.core.storage import random_filename  # noqa: E402
-from backend.app.models import AuthIdentity, Base  # noqa: E402
+from backend.app.models import AuditLog, AuthIdentity, Base  # noqa: E402
 
 
 def _postgres_ready() -> bool:
@@ -61,14 +62,16 @@ class AuthSystemTest(unittest.TestCase):
         os.environ["AUTH_MODE"] = "local"
         os.environ["LOCAL_REGISTRATION_ENABLED"] = "true"
         os.environ["LOCAL_REGISTRATION_INVITE_CODE"] = ""
+        os.environ["LOCAL_REGISTRATION_MAX_USES"] = "0"
         reset_app_settings()
         self.suffix = uuid.uuid4().hex[:10]
 
-    def register(self, username=None, password="password12", display_name="教师"):
+    def register(self, username=None, password="password12", display_name="教师", school=None):
         username = username or f"u{self.suffix}"
         resp = self.client.post(
             "/api/auth/register",
             json={
+                "school": "测试学校" if school is None else school,
                 "username": username,
                 "password": password,
                 "confirm_password": password,
@@ -78,37 +81,39 @@ class AuthSystemTest(unittest.TestCase):
         )
         return resp, username
 
+    def login(self, username, password="password12", school=None):
+        return self.client.post(
+            "/api/auth/login",
+            json={
+                "school": "测试学校" if school is None else school,
+                "username": username,
+                "password": password,
+            },
+        )
+
     def test_register_login_logout_and_me(self):
         resp, username = self.register()
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertNotIn("token", resp.json())
         self.assertEqual(resp.json()["user"]["role"], "user")
+        self.assertEqual(resp.json()["user"]["school"], "测试学校")
         me = self.client.get("/api/auth/me")
         self.assertEqual(me.status_code, 200)
         self.client.post("/api/auth/logout")
         self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
-        login = self.client.post(
-            "/api/auth/login",
-            json={"username": username, "password": "password12"},
-        )
+        login = self.login(username)
         self.assertEqual(login.status_code, 200)
         self.assertEqual(self.client.get("/api/auth/me").status_code, 200)
 
     def test_login_distinguishes_unknown_username_and_wrong_password(self):
-        unknown = self.client.post(
-            "/api/auth/login",
-            json={"username": f"missing{self.suffix}", "password": "password12"},
-        )
+        unknown = self.login(f"missing{self.suffix}")
         self.assertEqual(unknown.status_code, 401)
-        self.assertEqual(unknown.json()["detail"], "工号不存在")
+        self.assertEqual(unknown.json()["detail"], "学校和工号不匹配")
 
         registered, username = self.register()
         self.assertEqual(registered.status_code, 200, registered.text)
         self.client.post("/api/auth/logout")
-        wrong_password = self.client.post(
-            "/api/auth/login",
-            json={"username": username, "password": "incorrect-password"},
-        )
+        wrong_password = self.login(username, password="incorrect-password")
         self.assertEqual(wrong_password.status_code, 401)
         self.assertEqual(wrong_password.json()["detail"], "密码错误")
 
@@ -132,6 +137,83 @@ class AuthSystemTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         again, _ = self.register(username=username)
         self.assertEqual(again.status_code, 409)
+        self.assertEqual(again.json()["detail"], "该学校的工号已被使用")
+
+    def test_same_staff_id_can_register_at_another_school(self):
+        resp, username = self.register(school="学校甲")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.client.post("/api/auth/logout")
+        other, _ = self.register(username=username, school="学校乙")
+        self.assertEqual(other.status_code, 200, other.text)
+        conflict = self.client.patch("/api/auth/me", json={"school": "学校甲"})
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        moved = self.client.patch("/api/auth/me", json={"school": "学校丙"})
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["school"], "学校丙")
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self.login(username, school="学校乙").status_code, 401)
+        ok = self.login(username, school="学校丙")
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(self.login(username, school="学校甲").status_code, 200)
+
+    def test_invite_quota_counts_successful_registrations_under_concurrency(self):
+        engine = create_engine(get_app_settings().database_url_sync)
+        with engine.connect() as conn:
+            used_before = conn.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.action == "register",
+                    AuditLog.details["provider"].astext == "local",
+                )
+            )
+        engine.dispose()
+
+        os.environ["LOCAL_REGISTRATION_INVITE_CODE"] = "beta-test-code"
+        os.environ["LOCAL_REGISTRATION_MAX_USES"] = str(used_before + 1)
+        reset_app_settings()
+
+        def register_one(index):
+            client = TestClient(self.app)
+            try:
+                return client.post(
+                    "/api/auth/register",
+                    json={
+                        "school": "测试学校",
+                        "username": f"beta{index}{self.suffix}",
+                        "password": "password12",
+                        "confirm_password": "password12",
+                        "display_name": "内测用户",
+                        "invite_code": "beta-test-code",
+                    },
+                )
+            finally:
+                client.close()
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                responses = list(pool.map(register_one, (1, 2)))
+            self.assertEqual(sorted(response.status_code for response in responses), [200, 403])
+            self.assertEqual(
+                next(response.json()["detail"] for response in responses if response.status_code == 403),
+                "内测名额已满，暂不接受新用户注册",
+            )
+            engine = create_engine(get_app_settings().database_url_sync)
+            with engine.connect() as conn:
+                used_after = conn.scalar(
+                    select(func.count())
+                    .select_from(AuditLog)
+                    .where(
+                        AuditLog.action == "register",
+                        AuditLog.details["provider"].astext == "local",
+                    )
+                )
+            engine.dispose()
+            self.assertEqual(used_after, used_before + 1)
+        finally:
+            os.environ["LOCAL_REGISTRATION_INVITE_CODE"] = ""
+            os.environ["LOCAL_REGISTRATION_MAX_USES"] = "0"
+            reset_app_settings()
 
     def test_cannot_register_as_admin(self):
         resp, _ = self.register()
@@ -168,6 +250,7 @@ class AuthSystemTest(unittest.TestCase):
                 self.client.post(
                     "/api/auth/register",
                     json={
+                        "school": "测试学校",
                         "username": f"x{self.suffix}",
                         "password": "password12",
                         "confirm_password": "password12",
@@ -232,6 +315,7 @@ class AuthSystemTest(unittest.TestCase):
         self.client.post(
             "/api/auth/register",
             json={
+                "school": "测试学校",
                 "username": user_a,
                 "password": "password12",
                 "confirm_password": "password12",
@@ -243,6 +327,7 @@ class AuthSystemTest(unittest.TestCase):
         self.client.post(
             "/api/auth/register",
             json={
+                "school": "测试学校",
                 "username": user_b,
                 "password": "password12",
                 "confirm_password": "password12",
@@ -299,10 +384,7 @@ class AuthSystemTest(unittest.TestCase):
             session.commit()
         engine.dispose()
         self.client.post("/api/auth/logout")
-        self.client.post(
-            "/api/auth/login",
-            json={"username": username, "password": "password12"},
-        )
+        self.login(username)
         overview = self.client.get("/api/admin/overview")
         self.assertEqual(overview.status_code, 200, overview.text)
         audit = self.client.get("/api/admin/audit")

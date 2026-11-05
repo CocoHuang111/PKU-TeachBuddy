@@ -27,6 +27,20 @@ def normalize_username(raw: str) -> str:
     return (raw or "").strip().lower()
 
 
+def normalize_school(raw: str) -> str:
+    """折叠空白并忽略英文大小写，使同一学校名称只对应一个登录标识。"""
+    return " ".join((raw or "").strip().split()).casefold()
+
+
+def validate_school(raw: str) -> str:
+    school = normalize_school(raw)
+    if not school:
+        raise ValueError("请填写学校")
+    if len(school) > 80:
+        raise ValueError("学校名称不能超过 80 字")
+    return school
+
+
 def validate_username(raw: str) -> str:
     username = normalize_username(raw)
     if not USERNAME_RE.match(username):

@@ -22,7 +22,10 @@
       </template>
     </el-dialog>
     <header class="nav">
-      <div class="brand">TeachBuddy</div>
+      <div class="brand">
+        <img class="brand-logo" src="/brand/iteachbuddy-logo-light.svg" alt="iTeachBuddy" />
+        <img class="brand-mark" src="/brand/iteachbuddy-mark-light.svg" alt="iTeachBuddy" />
+      </div>
       <div class="nav-right">
         <el-menu
           :default-active="$route.path"
@@ -108,10 +111,14 @@ async function onLogout() {
 
 .brand {
   flex-shrink: 0;
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+}
+.brand-logo { display: block; width: 170px; height: auto; }
+.brand-mark { display: none; width: 34px; height: 34px; }
+@media (max-width: 900px) {
+  .brand-logo { display: none; }
+  .brand-mark { display: block; }
 }
 
 .nav-right {
