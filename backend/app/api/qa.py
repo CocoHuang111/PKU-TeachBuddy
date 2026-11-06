@@ -162,6 +162,11 @@ def _format_eval_context(task: dict) -> dict | None:
         f"{report}"
     )
     meta = settings.corpus_meta("eval_reports")
+    score = overall.get("score")
+    chip_name = name
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        rounded = int(float(score) + (0.5 if score >= 0 else -0.5))
+        chip_name = f"{name}（{rounded}分）"
     return {
         "text": text.strip(),
         "corpus": "eval_reports",
@@ -170,7 +175,36 @@ def _format_eval_context(task: dict) -> dict | None:
         "score": 1.0,
         "pinned": True,
         "context_type": "eval_report",
+        "history_attachment": {
+            "id": f"eval:{task.get('id') or chip_name}",
+            "name": chip_name,
+            "size": 0,
+            "kind": "eval_report",
+            "warnings": [],
+        },
     }
+
+
+def _eval_history_items(contexts: list[dict] | None) -> list[dict]:
+    items = []
+    for ctx in contexts or []:
+        if not isinstance(ctx, dict):
+            continue
+        chip = ctx.get("history_attachment")
+        if isinstance(chip, dict) and chip.get("name"):
+            items.append(dict(chip))
+    return items
+
+
+def _public_contexts(contexts: list[dict] | None) -> list[dict]:
+    cleaned = []
+    for ctx in contexts or []:
+        if not isinstance(ctx, dict):
+            continue
+        cleaned.append(
+            {key: value for key, value in ctx.items() if key != "history_attachment"}
+        )
+    return cleaned
 
 
 async def _pinned_eval_contexts(
@@ -317,10 +351,11 @@ async def ask_once(form: QAForm, user: dict = Depends(current_user)) -> dict:
     history = await _load_history(form.session_id, user["id"])
     eval_task_ids = await _owned_eval_task_ids(user["id"], form.eval_task_ids)
     eval_contexts = await _pinned_eval_contexts(user["id"], eval_task_ids)
+    eval_history = _eval_history_items(eval_contexts)
     attachment_contexts, attachment_history = await asyncio.to_thread(
         _attachment_contexts, user["id"], form.attachment_ids
     )
-    pinned = eval_contexts + attachment_contexts
+    pinned = _public_contexts(eval_contexts) + attachment_contexts
     result = await run_qa(
         ask,
         form.question,
@@ -339,7 +374,7 @@ async def ask_once(form: QAForm, user: dict = Depends(current_user)) -> dict:
         citations=result["citations"],
         plan=result.get("plan"),
         mode=form.mode,
-        attachments=attachment_history,
+        attachments=attachment_history + eval_history,
     )
     session_id = await db.save_session(
         form.session_id, history, user_id=user["id"]
@@ -354,12 +389,14 @@ async def ask_streaming(
     history = await _load_history(form.session_id, user["id"])
     eval_task_ids = await _owned_eval_task_ids(user["id"], form.eval_task_ids)
     eval_contexts = await _pinned_eval_contexts(user["id"], eval_task_ids)
+    eval_history = _eval_history_items(eval_contexts)
     attachment_contexts, attachment_history = await asyncio.to_thread(
         _attachment_contexts, user["id"], form.attachment_ids
     )
-    pinned = eval_contexts + attachment_contexts
+    pinned = _public_contexts(eval_contexts) + attachment_contexts
+    shown_attachments = attachment_history + eval_history
     pending = _pending_history(
-        history, form.question, form.mode, attachment_history
+        history, form.question, form.mode, shown_attachments
     )
     session_id = await db.save_session(
         form.session_id, pending, user_id=user["id"]
@@ -403,7 +440,7 @@ async def ask_streaming(
                     citations=final.get("citations"),
                     plan=final.get("plan"),
                     mode=form.mode,
-                    attachments=attachment_history,
+                    attachments=shown_attachments,
                 )
             else:
                 err = result["error"] or "生成失败"
@@ -412,7 +449,7 @@ async def ask_streaming(
                     form.question,
                     answer=f"（请求失败：{err}）",
                     mode=form.mode,
-                    attachments=attachment_history,
+                    attachments=shown_attachments,
                 )
             await db.save_session(session_id, new_history, user_id=user["id"])
         finally:

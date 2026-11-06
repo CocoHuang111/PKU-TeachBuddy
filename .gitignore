@@ -67,6 +67,9 @@ models/*
 # 生产部署模板可以入库；真实环境变量、实验表、课程样本和界面稿仍留在本机。
 DEPLOYMENT.md
 docs/
+# 论文配图和本地检查输出只留本机
+paper_figures/
+outputs/
 dataset/
 test/
 tmp/
