@@ -12,7 +12,12 @@ from pydantic import ValidationError
 from ai_engine.config import Settings
 from ai_engine.providers.base import ProviderError
 from ai_engine.qa.pipeline import _assemble_contexts, _build_messages
-from backend.app.api.qa import _attachment_contexts
+from backend.app.api.qa import (
+    _attachment_contexts,
+    _eval_history_items,
+    _format_eval_context,
+    _public_contexts,
+)
 from backend.app.core import qa_attachments
 from backend.app.schemas import QAForm
 
@@ -210,6 +215,25 @@ class QAAttachmentTests(unittest.TestCase):
         self.assertEqual(plan["pinned_attachments"], 1)
         self.assertNotIn("pinned_eval_reports", plan)
         self.assertEqual(contexts[0]["context_type"], "attachment")
+
+    def test_eval_report_chip_is_stored_separately_from_model_context(self):
+        ctx = _format_eval_context({
+            "id": "task-1",
+            "filename": "课堂.mp4",
+            "result": {
+                "report": "需要增加提问等待",
+                "overall": {"score": 86.2, "grade": "B", "grade_label": "良好"},
+                "dimensions": [],
+            },
+        })
+        chip = _eval_history_items([ctx])[0]
+        self.assertEqual(chip["kind"], "eval_report")
+        self.assertEqual(chip["id"], "eval:task-1")
+        self.assertEqual(chip["name"], "课堂.mp4（86分）")
+        public = _public_contexts([ctx])[0]
+        self.assertNotIn("history_attachment", public)
+        self.assertEqual(public["source"], "评估报告-课堂.mp4")
+        self.assertEqual(public["context_type"], "eval_report")
 
 
 if __name__ == "__main__":

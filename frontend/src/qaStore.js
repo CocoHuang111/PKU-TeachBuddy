@@ -30,6 +30,7 @@ export const sessionQuery = ref('')
 let ownerId = null
 let scrollHook = null
 let pollTimer = null
+let openSessionRequest = 0
 const jobs = ref([])
 const pollingId = ref(null)
 
@@ -46,6 +47,7 @@ export function setQaScroll(fn) {
 }
 
 export function resetQa() {
+  openSessionRequest += 1
   stopPoll()
   ownerId = null
   jobs.value = []
@@ -287,6 +289,7 @@ export function evalReportTime(task) {
 }
 
 export function newSession() {
+  openSessionRequest += 1
   stopPoll()
   pollingId.value = null
   sessionId.value = null
@@ -302,11 +305,14 @@ function jobForSession(id, msgs) {
 }
 
 export async function openSession(id) {
+  const requestId = ++openSessionRequest
+  // Historical attachments belong to their message; switching sessions must
+  // not silently reattach them to the composer.
+  selectedAttachments.value = []
   const liveJob = jobForSession(id)
   if (liveJob) {
     sessionId.value = id
     messages.value = liveJob.messages
-    selectedAttachments.value = [...(liveJob.attachments || [])]
     setMode(liveJob.mode || 'ask')
     persistSessionId(id)
     stopPoll()
@@ -316,11 +322,9 @@ export async function openSession(id) {
   }
   try {
     const s = await qaApi.getSession(id)
+    if (requestId !== openSessionRequest) return
     sessionId.value = id
     messages.value = hydrateMessages(s.history)
-    selectedAttachments.value = [
-      ...([...messages.value].reverse().find((m) => m.role === 'user' && m.attachments)?.attachments || []),
-    ]
     const lastMode = [...messages.value].reverse().find((m) => m.mode)?.mode || 'ask'
     setMode(lastMode)
     persistSessionId(id)
@@ -420,6 +424,29 @@ export function useSample(q) {
 
 function isPendingAttachment(item) {
   return !item || item.status === 'uploading' || String(item.id || '').startsWith('pending-')
+}
+
+function isFileAttachment(item) {
+  return item && item.kind !== 'eval_report'
+}
+
+function fileAttachments(items) {
+  return (items || []).filter(isFileAttachment)
+}
+
+function evalReportAttachments() {
+  return selectedEvalTaskIds.value.flatMap((id) => {
+    const task = evalReports.value.find((item) => item.id === id)
+    if (!task) return []
+    return [{
+      id: `eval:${id}`,
+      name: evalReportLabel(task),
+      size: 0,
+      kind: 'eval_report',
+      meta: evalReportTime(task) || '历史评估报告',
+      warnings: [],
+    }]
+  })
 }
 
 export async function uploadAttachments(files) {
@@ -545,7 +572,8 @@ export async function send() {
   const evalTaskIdsForRequest = corporaForRequest.includes('eval_reports')
     ? [...selectedEvalTaskIds.value]
     : null
-  const attachmentsForRequest = selectedAttachments.value.map((item) => ({ ...item }))
+  const attachmentsForRequest = fileAttachments(selectedAttachments.value).map((item) => ({ ...item }))
+  const visibleAttachments = [...attachmentsForRequest, ...evalReportAttachments()]
   applyEvalTaskSelection([])
   applyModeCorpora()
 
@@ -557,7 +585,7 @@ export async function send() {
     role: 'user',
     content: question,
     mode: modeForRequest,
-    attachments: attachmentsForRequest,
+    attachments: visibleAttachments,
   })
 
   const reply = {

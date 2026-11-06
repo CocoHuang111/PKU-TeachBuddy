@@ -205,9 +205,9 @@
         <footer class="composer-wrap">
           <div class="composer">
             <div class="composer-box">
-              <div v-if="selectedAttachments.length" class="attachment-tray">
+              <div v-if="composerAttachments.length" class="attachment-tray">
                 <div
-                  v-for="file in selectedAttachments"
+                  v-for="file in composerAttachments"
                   :key="file.id"
                   class="attachment-chip"
                   :class="{ uploading: isUploading(file) }"
@@ -217,9 +217,15 @@
                   </div>
                   <div class="attachment-chip-content">
                     <span class="attachment-chip-name" :title="file.name">{{ file.name }}</span>
-                    <span class="attachment-chip-size">{{ formatSize(file.size) }}</span>
+                    <span class="attachment-chip-size">
+                      {{ file.kind === 'eval_report' ? file.meta : formatSize(file.size) }}
+                    </span>
                     <span class="attachment-chip-status" :class="{ done: !isUploading(file) }">
                       <template v-if="isUploading(file)">正在上传 {{ attachmentUploadProgress }}%</template>
+                      <template v-else-if="file.kind === 'eval_report'">
+                        <el-icon :size="14"><CircleCheckFilled /></el-icon>
+                        已选取
+                      </template>
                       <template v-else>
                         <el-icon :size="14"><CircleCheckFilled /></el-icon>
                         上传完成
@@ -233,7 +239,11 @@
                   >
                     <span class="attachment-warning">!</span>
                   </el-tooltip>
-                  <button type="button" title="移除并删除文件" @click="removeAttachment(file)">
+                  <button
+                    type="button"
+                    :title="file.kind === 'eval_report' ? '移除' : '移除并删除文件'"
+                    @click="removeComposerAttachment(file)"
+                  >
                     <el-icon><Close /></el-icon>
                   </button>
                   <el-progress
@@ -255,19 +265,41 @@
                 @keydown.enter.exact.prevent="send"
               />
               <div class="composer-toolbar">
-                <button
-                  class="composer-tool-btn upload-btn"
-                  type="button"
+                <el-popover
+                  v-model:visible="uploadMenuOpen"
+                  placement="top-start"
+                  :width="168"
+                  trigger="click"
                   :disabled="uploadingAttachments"
-                  title="上传作业、成绩、大纲、图片或其他材料"
-                  aria-label="上传文件"
-                  @click="uploadInput?.click()"
+                  popper-class="upload-source-popper"
                 >
-                  <el-icon :size="18" :class="{ 'is-loading': uploadingAttachments }">
-                    <Loading v-if="uploadingAttachments" />
-                    <Plus v-else />
-                  </el-icon>
-                </button>
+                  <template #reference>
+                    <button
+                      class="composer-tool-btn upload-btn"
+                      type="button"
+                      :disabled="uploadingAttachments"
+                      title="上传文件或选取历史评估报告"
+                      aria-label="添加材料"
+                      aria-haspopup="menu"
+                      :aria-expanded="uploadMenuOpen"
+                    >
+                      <el-icon :size="18" :class="{ 'is-loading': uploadingAttachments }">
+                        <Loading v-if="uploadingAttachments" />
+                        <Plus v-else />
+                      </el-icon>
+                    </button>
+                  </template>
+                  <div class="upload-source-menu" role="menu">
+                    <button type="button" role="menuitem" @click="chooseUploadFiles">
+                      <el-icon :size="16"><Upload /></el-icon>
+                      <span>上传文件</span>
+                    </button>
+                    <button type="button" role="menuitem" @click="openEvalDialog">
+                      <el-icon :size="16"><Document /></el-icon>
+                      <span>选取历史报告</span>
+                    </button>
+                  </div>
+                </el-popover>
                 <input
                   ref="uploadInput"
                   class="visually-hidden"
@@ -339,26 +371,6 @@
                           {{ c.label }}
                         </el-checkbox>
                       </el-checkbox-group>
-                      <button
-                        class="eval-report-entry"
-                        type="button"
-                        :class="{ active: selectedEvalTaskIds.length }"
-                        @click="openEvalDialog"
-                      >
-                        <span class="eval-report-check" :class="{ on: selectedEvalTaskIds.length }" />
-                        <span class="eval-report-entry-text">
-                          <span>
-                            {{ evalCorpus?.label || '历史评估报告' }}
-                          </span>
-                          <span class="eval-report-entry-meta">
-                            {{
-                              selectedEvalTaskIds.length
-                                ? `已选 ${selectedEvalTaskIds.length} 份，点击更改`
-                                : '点击选择任务'
-                            }}
-                          </span>
-                        </span>
-                      </button>
                     </div>
                   </el-popover>
                   <el-button
@@ -425,7 +437,7 @@ export default { name: 'QA' }
 </script>
 
 <script setup>
-import { nextTick, onActivated, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onMounted, ref } from 'vue'
 import {
   ArrowUp,
   ChatDotRound,
@@ -442,6 +454,7 @@ import {
   Plus,
   Promotion,
   Search,
+  Upload,
 } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -453,7 +466,6 @@ import {
   currentMode,
   currentPinned,
   currentTitle,
-  evalCorpus,
   evalReportLabel,
   evalReportTime,
   evalReports,
@@ -490,11 +502,29 @@ import {
 
 const bodyEl = ref(null)
 const uploadInput = ref(null)
+const uploadMenuOpen = ref(false)
 const corpusMenuOpen = ref(false)
 const modeCorpusMenuEl = ref(null)
 const modeMenuHeadEl = ref(null)
 const evalDialogOpen = ref(false)
 const evalDraftIds = ref([])
+
+const composerAttachments = computed(() => [
+  ...selectedAttachments.value,
+  ...selectedEvalTaskIds.value.flatMap((id) => {
+    const task = evalReports.value.find((item) => item.id === id)
+    if (!task) return []
+    return [{
+      id: `eval:${id}`,
+      taskId: id,
+      kind: 'eval_report',
+      name: evalReportLabel(task),
+      meta: evalReportTime(task) || '历史评估报告',
+      status: 'ready',
+      warnings: [],
+    }]
+  }),
+])
 
 function clipMenuToKnowledgeTitle() {
   const menu = modeCorpusMenuEl.value
@@ -505,7 +535,6 @@ function clipMenuToKnowledgeTitle() {
 }
 
 async function onCorpusMenuShow() {
-  loadEvalReports()
   for (let i = 0; i < 12; i += 1) {
     await nextTick()
     if (clipMenuToKnowledgeTitle()) return
@@ -513,8 +542,14 @@ async function onCorpusMenuShow() {
   }
 }
 
+function chooseUploadFiles() {
+  uploadMenuOpen.value = false
+  uploadInput.value?.click()
+}
+
 async function openEvalDialog() {
   corpusMenuOpen.value = false
+  uploadMenuOpen.value = false
   await loadEvalReports()
   evalDraftIds.value = [...selectedEvalTaskIds.value]
   evalDialogOpen.value = true
@@ -553,11 +588,20 @@ function modeIcon(name) {
   return MODE_ICONS[name] || ChatDotRound
 }
 
+function removeComposerAttachment(file) {
+  if (file?.kind === 'eval_report') {
+    applyEvalTaskSelection(selectedEvalTaskIds.value.filter((id) => id !== file.taskId))
+    return
+  }
+  removeAttachment(file)
+}
+
 function isUploading(file) {
   return file?.status === 'uploading' || String(file?.id || '').startsWith('pending-')
 }
 
 function fileKind(file) {
+  if (file?.kind === 'eval_report') return { label: '报告', tone: 'report' }
   const ext = String(file?.suffix || file?.name || '')
     .replace(/^\./, '')
     .split('.')
@@ -1152,6 +1196,9 @@ onActivated(() => {
 .attachment-type.img {
   background: #0f766e;
 }
+.attachment-type.report {
+  background: #7b1113;
+}
 .attachment-chip-content {
   min-width: 0;
   display: flex;
@@ -1282,49 +1329,6 @@ onActivated(() => {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid #f0f0f0;
-}
-.eval-report-entry {
-  margin-top: 10px;
-  padding: 8px 8px 8px 0;
-  width: 100%;
-  border: none;
-  border-top: 1px solid #f0f0f0;
-  background: transparent;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  text-align: left;
-  cursor: pointer;
-  color: #303133;
-}
-.eval-report-entry:hover .eval-report-entry-text {
-  color: #7b1113;
-}
-.eval-report-check {
-  margin-top: 3px;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  border: 1px solid #dcdfe6;
-  border-radius: 2px;
-  background: #fff;
-  box-sizing: border-box;
-}
-.eval-report-check.on {
-  border-color: #7b1113;
-  background: #7b1113;
-  box-shadow: inset 0 0 0 2px #fff;
-}
-.eval-report-entry-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 14px;
-  line-height: 1.4;
-}
-.eval-report-entry-meta {
-  font-size: 12px;
-  color: #c0c4cc;
 }
 .eval-report-name {
   display: block;
@@ -1521,6 +1525,33 @@ onActivated(() => {
 <style>
 .mode-corpus-popper {
   padding: 10px 8px !important;
+}
+.upload-source-popper {
+  padding: 6px !important;
+}
+.upload-source-popper .upload-source-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.upload-source-popper .upload-source-menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #303133;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.upload-source-popper .upload-source-menu button:hover {
+  background: #f7f7f8;
+  color: #7b1113;
 }
 .mode-corpus-popper .mode-corpus-menu {
   scrollbar-width: thin;
